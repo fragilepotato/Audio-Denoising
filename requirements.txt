@@ -1,5 +1,5 @@
-tqdm
-soundfile
-numpy
-matplotlib
-PyWavelets
+tqdm==4.67.1
+soundfile==0.13.1
+numpy==2.3.4
+matplotlib==3.10.7
+PyWavelets==1.9.0
