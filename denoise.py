@@ -9,6 +9,8 @@ import numpy as np
 import pywt
 import soundfile
 from tqdm import tqdm
+import os
+import traceback
 
 from lib.noiseProfiler import NoiseProfiler
 
@@ -101,14 +103,77 @@ class AudioDeNoise:
         noiseFile : str
             name for the noise signal extracted
         """
-        data, rate = soundfile.read(noiseFile)
+        # keep legacy behavior but validate file first
+        if not os.path.exists(noiseFile):
+            raise FileNotFoundError(f"Noise sample not found: {noiseFile}")
+
+        try:
+            data, rate = soundfile.read(noiseFile)
+        except Exception as exc:
+            # surface a clearer error message for libsndfile failures
+            raise RuntimeError(f"Could not read noise sample '{noiseFile}': {exc}") from exc
+
         self.__noiseProfile = NoiseProfiler(data)
         noiseSignal = self.__noiseProfile.getNoiseDataPredicted()
 
+        # overwrite the source (legacy behavior)
         soundfile.write(noiseFile, noiseSignal, rate)
+
+    def generateNoiseProfileTo(self, noiseFile, outputFile):
+        """
+        Generate a predicted noise signal from `noiseFile` and write it to
+        `outputFile`. This is a safer alternative to `generateNoiseProfile` which
+        overwrites the source file.
+
+        Parameters
+        ----------
+        noiseFile : str
+            Path to a noise-only audio sample to analyze.
+        outputFile : str
+            Path where the predicted noise signal will be written.
+        """
+        if not os.path.exists(noiseFile):
+            raise FileNotFoundError(f"Noise sample not found: {noiseFile}")
+
+        try:
+            data, rate = soundfile.read(noiseFile)
+        except Exception as exc:
+            raise RuntimeError(f"Could not read noise sample '{noiseFile}': {exc}") from exc
+
+        self.__noiseProfile = NoiseProfiler(data)
+        noiseSignal = self.__noiseProfile.getNoiseDataPredicted()
+
+        # write predicted noise to the requested output file
+        try:
+            soundfile.write(outputFile, noiseSignal, rate)
+        except Exception as exc:
+            raise RuntimeError(f"Could not write predicted noise to '{outputFile}': {exc}") from exc
 
     def __del__(self):
         """
         clean up
         """
         del self.__noiseProfile
+
+
+if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Audio denoising helpers')
+    sub = parser.add_subparsers(dest='cmd')
+
+    p_dn = sub.add_parser('denoise', help='Denoise an input file')
+    p_dn.add_argument('input', help='Input audio file')
+    p_dn.add_argument('output', help='Output denoised audio file')
+
+    p_np = sub.add_parser('noise-profile', help='Generate predicted noise from a noise sample')
+    p_np.add_argument('noise_sample', help='Input noise-only sample file')
+    p_np.add_argument('output', help='Output file to write predicted noise to')
+
+    args = parser.parse_args()
+    if args.cmd == 'denoise':
+        d = AudioDeNoise(args.input)
+        d.deNoise(args.output)
+    elif args.cmd == 'noise-profile':
+        d = AudioDeNoise(args.noise_sample)
+        d.generateNoiseProfileTo(args.noise_sample, args.output)
